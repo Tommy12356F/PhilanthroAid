@@ -13,7 +13,7 @@ import {
 } from "firebase/firestore"
 import { auth, db } from "../../firebase"
 
-/* ---------------- Types ---------------- */
+/* ================= TYPES ================= */
 
 type Donation = {
   id: string
@@ -24,6 +24,8 @@ type Donation = {
   description?: string
   status: "open" | "matched" | "completed"
   matchedNgoId?: string
+  donorName?: string
+  pickupLocation?: { lat: number; lng: number }
 }
 
 type Request = {
@@ -35,9 +37,9 @@ type Request = {
   fulfilled: boolean
 }
 
-type View = "operations" | "available" | "my" | "request"
+type View = "operations" | "available" | "my" | "request" | "matches"
 
-/* ---------------- Component ---------------- */
+/* ================= COMPONENT ================= */
 
 export default function NgoDashboard() {
   const [uid, setUid] = useState<string | null>(null)
@@ -52,19 +54,21 @@ export default function NgoDashboard() {
   /* ---------- Request form ---------- */
   const [reqCategory, setReqCategory] = useState("food")
   const [reqQuantity, setReqQuantity] = useState("")
-  const [reqUrgency, setReqUrgency] = useState<"low" | "medium" | "high">(
-    "medium"
-  )
+  const [reqUrgency, setReqUrgency] =
+    useState<"low" | "medium" | "high">("medium")
   const [reqDescription, setReqDescription] = useState("")
 
-  /* ---------- Auth ---------- */
+  /* ================= AUTH ================= */
+
   useEffect(() => {
     return onAuthStateChanged(auth, (user) => {
       if (user) setUid(user.uid)
     })
   }, [])
 
-  /* ---------- Available Donations ---------- */
+  /* ================= FETCH DATA ================= */
+
+  // AVAILABLE DONATIONS
   useEffect(() => {
     if (!uid || view !== "available") return
 
@@ -76,18 +80,16 @@ export default function NgoDashboard() {
         where("city", "==", city)
       )
       const snap = await getDocs(q)
-      setAvailable(
-        snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
-      )
+      setAvailable(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })))
       setLoading(false)
     }
 
     run()
   }, [uid, view, city])
 
-  /* ---------- My Donations (matched to this NGO) ---------- */
+  // MY DONATIONS (matched + completed)
   useEffect(() => {
-    if (!uid || view !== "operations" && view !== "my") return
+    if (!uid || (view !== "operations" && view !== "my")) return
 
     const run = async () => {
       const q = query(
@@ -95,17 +97,15 @@ export default function NgoDashboard() {
         where("matchedNgoId", "==", uid)
       )
       const snap = await getDocs(q)
-      setMyDonations(
-        snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
-      )
+      setMyDonations(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })))
     }
 
     run()
   }, [uid, view])
 
-  /* ---------- Requests ---------- */
+  // REQUESTS
   useEffect(() => {
-    if (!uid || view !== "request") return
+    if (!uid || (view !== "request" && view !== "operations")) return
 
     const run = async () => {
       const q = query(
@@ -113,15 +113,13 @@ export default function NgoDashboard() {
         where("ngoId", "==", uid)
       )
       const snap = await getDocs(q)
-      setRequests(
-        snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
-      )
+      setRequests(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })))
     }
 
     run()
   }, [uid, view])
 
-  /* ---------- Actions ---------- */
+  /* ================= ACTIONS ================= */
 
   const acceptDonation = async (id: string) => {
     if (!uid) return
@@ -129,7 +127,7 @@ export default function NgoDashboard() {
       status: "matched",
       matchedNgoId: uid,
     })
-    setAvailable((p) => p.filter((d) => d.id !== id))
+    setAvailable(p => p.filter(d => d.id !== id))
   }
 
   const completeDonation = async (id: string) => {
@@ -137,7 +135,7 @@ export default function NgoDashboard() {
       status: "completed",
       completedAt: serverTimestamp(),
     })
-    setMyDonations((p) => p.filter((d) => d.id !== id))
+    setMyDonations(p => p.map(d => d.id === id ? { ...d, status: "completed" } : d))
   }
 
   const submitRequest = async () => {
@@ -158,6 +156,15 @@ export default function NgoDashboard() {
     setView("operations")
   }
 
+  const toggleRequestFulfilled = async (id: string, value: boolean) => {
+    await updateDoc(doc(db, "requests", id), { fulfilled: value })
+    setRequests(p =>
+      p.map(r => r.id === id ? { ...r, fulfilled: value } : r)
+    )
+  }
+
+  /* ================= DEV ================= */
+
   const resetDev = async () => {
     if (!uid) return
     if (!confirm("DEV ONLY: Reset NGO?")) return
@@ -176,27 +183,26 @@ export default function NgoDashboard() {
     window.location.href = "/"
   }
 
-  /* ---------------- UI ---------------- */
+  /* ================= UI ================= */
 
   return (
     <div className="flex min-h-screen w-screen bg-black text-white">
       {/* SIDEBAR */}
-      <aside className="w-[260px] border-r border-white/10 p-6 flex flex-col">
+      <aside className="w-[280px] border-r border-white/10 p-6 flex flex-col">
         <h1 className="text-xl font-semibold mb-8">PhilanthroAid</h1>
 
         <nav className="flex flex-col gap-2">
-          <NavButton active={view === "operations"} onClick={() => setView("operations")}>
-            Operations
-          </NavButton>
-          <NavButton active={view === "available"} onClick={() => setView("available")}>
-            Available Donations
-          </NavButton>
-          <NavButton active={view === "my"} onClick={() => setView("my")}>
-            My Donations
-          </NavButton>
-          <NavButton active={view === "request"} onClick={() => setView("request")}>
-            Request Items
-          </NavButton>
+          {[
+            ["operations", "Operations"],
+            ["available", "Available Donations"],
+            ["my", "My Donations"],
+            ["request", "Request Items"],
+            ["matches", "Matches"],
+          ].map(([k, v]) => (
+            <NavButton key={k} active={view === k} onClick={() => setView(k as View)}>
+              {v}
+            </NavButton>
+          ))}
         </nav>
 
         <div className="mt-auto space-y-3">
@@ -223,56 +229,49 @@ export default function NgoDashboard() {
             </p>
 
             <div className="grid grid-cols-4 gap-6 mb-10">
-              <Stat title="Matched Donations" value={myDonations.length} />
-              <Stat
-                title="Completed"
-                value={myDonations.filter((d) => d.status === "completed").length}
-              />
-              <Stat title="Success Rate" value="94%" />
+              <Stat title="Matched Donations" value={myDonations.filter(d => d.status === "matched").length} />
+              <Stat title="Completed" value={myDonations.filter(d => d.status === "completed").length} />
+              <Stat title="Active Requests" value={requests.filter(r => !r.fulfilled).length} />
               <Stat title="Latency" value="12m" />
             </div>
 
-            <h3 className="text-xl mb-4">Logistic Feed</h3>
-
+            <h3 className="text-xl mb-4">Requests Overview</h3>
             <div className="grid grid-cols-2 gap-6">
-              {myDonations
-                .filter((d) => d.status === "matched")
-                .map((d) => (
-                  <DonationCard key={d.id}>
-                    <DonationInfo d={d} />
-                    <button
-                      onClick={() => completeDonation(d.id)}
-                      className="text-green-400"
-                    >
-                      ✔ Complete
-                    </button>
-                  </DonationCard>
-                ))}
+              {requests.map(r => (
+                <Card key={r.id}>
+                  <div>
+                    <p className="font-medium capitalize">{r.category}</p>
+                    <p className="text-sm text-white/60">
+                      {r.quantity} · {r.urgency}
+                    </p>
+                    <p className="text-xs text-white/40 mt-1">{r.description}</p>
+                  </div>
+                  <button
+                    onClick={() => toggleRequestFulfilled(r.id, !r.fulfilled)}
+                    className={r.fulfilled ? "text-green-400" : "text-white/40"}
+                  >
+                    ✔
+                  </button>
+                </Card>
+              ))}
             </div>
           </>
         )}
 
-        {/* AVAILABLE */}
+        {/* AVAILABLE DONATIONS */}
         {view === "available" && (
           <>
             <h2 className="text-3xl mb-6">Available Donations</h2>
-            {loading ? (
-              <p>Loading...</p>
-            ) : (
-              <div className="grid grid-cols-2 gap-6">
-                {available.map((d) => (
-                  <DonationCard key={d.id}>
-                    <DonationInfo d={d} />
-                    <button
-                      onClick={() => acceptDonation(d.id)}
-                      className="text-green-400"
-                    >
-                      ✔ Accept
-                    </button>
-                  </DonationCard>
-                ))}
-              </div>
-            )}
+            <div className="grid grid-cols-2 gap-6">
+              {available.map(d => (
+                <Card key={d.id}>
+                  <DonationInfo d={d} />
+                  <button onClick={() => acceptDonation(d.id)} className="text-green-400">
+                    ✔ Accept
+                  </button>
+                </Card>
+              ))}
+            </div>
           </>
         )}
 
@@ -281,70 +280,60 @@ export default function NgoDashboard() {
           <>
             <h2 className="text-3xl mb-6">My Donations</h2>
             <div className="grid grid-cols-2 gap-6">
-              {myDonations.map((d) => (
-                <DonationCard key={d.id}>
+              {myDonations.map(d => (
+                <Card key={d.id} highlight={d.status === "completed"}>
                   <DonationInfo d={d} />
-                  <span className="text-sm text-white/60 capitalize">
-                    {d.status}
-                  </span>
-                </DonationCard>
+                  {d.status === "matched" ? (
+                    <button onClick={() => completeDonation(d.id)} className="text-green-400">
+                      ✔ Complete
+                    </button>
+                  ) : (
+                    <span className="text-green-500">Completed ✓</span>
+                  )}
+                </Card>
               ))}
             </div>
           </>
         )}
 
-        {/* REQUEST ITEMS */}
+        {/* REQUEST */}
         {view === "request" && (
           <div className="max-w-md">
             <h2 className="text-2xl mb-6">Request Items</h2>
-
             <Input label="Category">
-              <select
-                value={reqCategory}
-                onChange={(e) => setReqCategory(e.target.value)}
-                className="input"
-              >
-                <option value="food">Food</option>
-                <option value="clothes">Clothes</option>
-                <option value="books">Books</option>
-                <option value="medical">Medical</option>
+              <select className="input" value={reqCategory} onChange={e => setReqCategory(e.target.value)}>
+                <option>food</option>
+                <option>clothes</option>
+                <option>books</option>
+                <option>medical</option>
               </select>
             </Input>
-
             <Input label="Quantity">
-              <input
-                value={reqQuantity}
-                onChange={(e) => setReqQuantity(e.target.value)}
-                className="input"
-              />
+              <input className="input" value={reqQuantity} onChange={e => setReqQuantity(e.target.value)} />
             </Input>
-
             <Input label="Urgency">
-              <select
-                value={reqUrgency}
-                onChange={(e) => setReqUrgency(e.target.value as any)}
-                className="input"
-              >
+              <select className="input" value={reqUrgency} onChange={e => setReqUrgency(e.target.value as any)}>
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
               </select>
             </Input>
-
             <Input label="Description">
-              <textarea
-                value={reqDescription}
-                onChange={(e) => setReqDescription(e.target.value)}
-                className="input h-24"
-              />
+              <textarea className="input h-24" value={reqDescription} onChange={e => setReqDescription(e.target.value)} />
             </Input>
-
-            <button
-              onClick={submitRequest}
-              className="bg-white text-black px-6 py-2 rounded"
-            >
+            <button onClick={submitRequest} className="bg-white text-black px-6 py-2 rounded">
               Submit Request
             </button>
+          </div>
+        )}
+
+        {/* MATCHES */}
+        {view === "matches" && (
+          <div>
+            <h2 className="text-3xl mb-4">AI Matches</h2>
+            <p className="text-white/60">
+              Gemini-powered matching coming online 🚀
+            </p>
           </div>
         )}
       </main>
@@ -352,7 +341,7 @@ export default function NgoDashboard() {
   )
 }
 
-/* ---------------- Components ---------------- */
+/* ================= UI HELPERS ================= */
 
 function NavButton({ children, active, onClick }: any) {
   return (
@@ -376,9 +365,13 @@ function Stat({ title, value }: any) {
   )
 }
 
-function DonationCard({ children }: any) {
+function Card({ children, highlight }: any) {
   return (
-    <div className="bg-white/5 p-6 rounded-xl flex justify-between items-center">
+    <div
+      className={`p-6 rounded-xl flex justify-between items-center ${
+        highlight ? "bg-green-900/20 border border-green-500/30" : "bg-white/5"
+      }`}
+    >
       {children}
     </div>
   )
@@ -393,6 +386,16 @@ function DonationInfo({ d }: { d: Donation }) {
       </p>
       {d.description && (
         <p className="text-xs text-white/40 mt-1">{d.description}</p>
+      )}
+      {d.donorName && (
+        <p className="text-xs text-white/40 mt-1">
+          Donor: {d.donorName}
+        </p>
+      )}
+      {d.pickupLocation && (
+        <p className="text-xs text-white/30 mt-1">
+          {d.pickupLocation.lat}, {d.pickupLocation.lng}
+        </p>
       )}
     </div>
   )
