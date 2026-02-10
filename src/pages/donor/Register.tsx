@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react"
 import { onAuthStateChanged, signOut } from "firebase/auth"
-import { doc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore"
+import {
+  doc,
+  setDoc,
+  updateDoc,
+  getDoc,
+  serverTimestamp,
+} from "firebase/firestore"
 import { auth, db } from "../../firebase"
 
 type LocationState = {
@@ -17,15 +23,40 @@ export default function DonorRegister() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  // Get logged-in user
+  // 🔹 Bootstrap user
   useEffect(() => {
-    return onAuthStateChanged(auth, (user) => {
-      if (user) setUid(user.uid)
+    return onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setLoading(false)
+        return
+      }
+
+      setUid(user.uid)
+
+      const userRef = doc(db, "users", user.uid)
+      const snap = await getDoc(userRef)
+
+      // Returning user → go straight to dashboard
+      if (snap.exists() && snap.data().profileCompleted) {
+        window.location.href = "/donor/dashboard"
+        return
+      }
+
+      // First-time user → create shell if missing
+      if (!snap.exists()) {
+        await setDoc(userRef, {
+          uid: user.uid,
+          role: "donor",
+          profileCompleted: false,
+          createdAt: serverTimestamp(),
+        })
+      }
+
       setLoading(false)
     })
   }, [])
 
-  // Get browser location
+  // 🔹 Get browser location
   const getLocation = () => {
     if (!navigator.geolocation) {
       alert("Geolocation not supported")
@@ -37,22 +68,17 @@ export default function DonorRegister() {
         setLocation({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
-          city: "Unknown", // can be improved later
+          city: "Unknown",
         })
       },
       () => alert("Location permission denied")
     )
   }
 
-  // Save donor profile
+  // 🔹 Submit registration
   const submitRegistration = async () => {
-    if (!uid) return
-    if (!name.trim()) {
-      alert("Name is required")
-      return
-    }
-    if (!location) {
-      alert("Please allow location access")
+    if (!uid || !name.trim() || !location) {
+      alert("All required fields missing")
       return
     }
 
@@ -60,7 +86,6 @@ export default function DonorRegister() {
 
     const donorId = `DONOR-${uid.slice(0, 6).toUpperCase()}`
 
-    // Save donor profile
     await setDoc(doc(db, "donors", uid), {
       donorId,
       uid,
@@ -70,16 +95,15 @@ export default function DonorRegister() {
       createdAt: serverTimestamp(),
     })
 
-    // Mark profile complete
     await updateDoc(doc(db, "users", uid), {
       profileCompleted: true,
+      updatedAt: serverTimestamp(),
     })
 
-    // Redirect to dashboard
     window.location.href = "/donor/dashboard"
   }
 
-  // Logout (testing + safety)
+  // 🔹 Logout
   const handleLogout = async () => {
     await signOut(auth)
     localStorage.removeItem("role")
@@ -92,27 +116,19 @@ export default function DonorRegister() {
     <div style={{ padding: 40, maxWidth: 500 }}>
       <h1>Donor Registration</h1>
 
-      <label>
-        Name (required)
-        <br />
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Your name"
-        />
-      </label>
+      <input
+        placeholder="Name (required)"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
 
       <br /><br />
 
-      <label>
-        Description (optional)
-        <br />
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="A short note about you"
-        />
-      </label>
+      <textarea
+        placeholder="Description (optional)"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+      />
 
       <br /><br />
 
@@ -128,9 +144,7 @@ export default function DonorRegister() {
 
       <br /><br />
 
-      <button onClick={handleLogout}>
-        Logout
-      </button>
+      <button onClick={handleLogout}>Logout</button>
     </div>
   )
 }

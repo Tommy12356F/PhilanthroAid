@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react"
 import { onAuthStateChanged, signOut } from "firebase/auth"
-import { doc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore"
+import {
+  doc,
+  setDoc,
+  updateDoc,
+  getDoc,
+  serverTimestamp,
+} from "firebase/firestore"
 import { auth, db } from "../../firebase"
 
 type LocationState = {
@@ -17,15 +23,43 @@ export default function NgoRegister() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  // Get logged-in user
+  // 🔹 Bootstrap + guard
   useEffect(() => {
-    return onAuthStateChanged(auth, (user) => {
-      if (user) setUid(user.uid)
+    return onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setLoading(false)
+        return
+      }
+
+      setUid(user.uid)
+
+      const userRef = doc(db, "users", user.uid)
+      const snap = await getDoc(userRef)
+
+      if (!snap.exists()) {
+        window.location.href = "/"
+        return
+      }
+
+      const userData = snap.data()
+
+      // 🔁 If user is NOT NGO, redirect to their real dashboard
+      if (userData.role !== "ngo") {
+        window.location.href = `/${userData.role}/dashboard`
+        return
+      }
+
+      // 🔁 If already registered, go to dashboard
+      if (userData.profileCompleted) {
+        window.location.href = "/ngo/dashboard"
+        return
+      }
+
       setLoading(false)
     })
   }, [])
 
-  // Get browser location
+  // 🔹 Get browser location
   const getLocation = () => {
     if (!navigator.geolocation) {
       alert("Geolocation not supported")
@@ -44,7 +78,7 @@ export default function NgoRegister() {
     )
   }
 
-  // Save NGO profile
+  // 🔹 Save NGO profile
   const submitRegistration = async () => {
     if (!uid) return
     if (!ngoName.trim()) {
@@ -70,16 +104,16 @@ export default function NgoRegister() {
       createdAt: serverTimestamp(),
     })
 
-    // Mark profile complete
+    // Mark profile complete (role already set by bootstrap)
     await updateDoc(doc(db, "users", uid), {
       profileCompleted: true,
+      updatedAt: serverTimestamp(),
     })
 
-    // Redirect to dashboard
     window.location.href = "/ngo/dashboard"
   }
 
-  // Logout (testing + safety)
+  // 🔹 Logout (dev + safety)
   const handleLogout = async () => {
     await signOut(auth)
     localStorage.removeItem("role")
@@ -128,9 +162,7 @@ export default function NgoRegister() {
 
       <br /><br />
 
-      <button onClick={handleLogout}>
-        Logout
-      </button>
+      <button onClick={handleLogout}>Logout</button>
     </div>
   )
 }

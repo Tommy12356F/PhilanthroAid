@@ -1,3 +1,5 @@
+
+
 import { initializeApp } from "firebase/app"
 import { getAuth } from "firebase/auth"
 import { getFirestore } from "firebase/firestore"
@@ -9,6 +11,7 @@ const firebaseConfig = {
   storageBucket: "philanthroaid-c694e.appspot.com",
   messagingSenderId: "246129043945",
   appId: "1:246129043945:web:2ef41f5e3aff98896fc378",
+  // your config
 }
 
 const app = initializeApp(firebaseConfig)

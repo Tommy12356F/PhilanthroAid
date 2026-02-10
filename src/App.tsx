@@ -1,4 +1,6 @@
 import Landing from "./pages/Landing"
+import NewDonation from "./pages/donor/NewDonation"
+
 
 import { useEffect, useState } from "react"
 import { onAuthStateChanged } from "firebase/auth"
@@ -20,6 +22,7 @@ import NgoDashboard from "./pages/ngo/Dashboard"
 function AppRoutes() {
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
+  
 
   useEffect(() => {
     return onAuthStateChanged(auth, async (user) => {
@@ -58,6 +61,8 @@ function AppRoutes() {
       <Route path="/ngo/dashboard" element={<NgoDashboard />} />
       <Route path="/donor/register" element={<DonorRegister />} />
       <Route path="/donor/dashboard" element={<DonorDashboard />} />
+      <Route path="/donor/new" element={<NewDonation />} />
+
     </Routes>
 
   )

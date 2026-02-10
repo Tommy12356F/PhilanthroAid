@@ -3,6 +3,9 @@
 @tailwind utilities;
 
 
+.input {
+  @apply w-full px-4 py-3 rounded-lg bg-white/10 border border-white/10 text-white outline-none;
+}
 
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
