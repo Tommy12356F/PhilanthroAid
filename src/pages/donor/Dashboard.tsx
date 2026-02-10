@@ -1,144 +1,202 @@
 import { useEffect, useState } from "react"
-import { auth } from "../../firebase"
-import { collection, query, where, getDocs } from "firebase/firestore"
-import { db } from "../../firebase"
-import { signOut } from "firebase/auth"
+import { onAuthStateChanged, signOut } from "firebase/auth"
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore"
+import { auth, db } from "../../firebase"
 import { createDonation } from "../../services/donationService"
 
-type Tab = "dashboard" | "donate" | "history"
+type Donation = {
+  id: string
+  category: string
+  quantity: string
+  condition: "new" | "good" | "used"
+  description: string
+  status: "open" | "matched"
+}
+
+type View = "dashboard" | "donate" | "history"
 
 export default function DonorDashboard() {
-  const [activeTab, setActiveTab] = useState<Tab>("dashboard")
-  const [donations, setDonations] = useState<any[]>([])
+  const [uid, setUid] = useState<string | null>(null)
+  const [view, setView] = useState<View>("dashboard")
+  const [pending, setPending] = useState<Donation[]>([])
+  const [completed, setCompleted] = useState<Donation[]>([])
   const [loading, setLoading] = useState(true)
 
   // form state
-  const [category, setCategory] = useState("food")
-  const [condition, setCondition] = useState("good")
+  const [category, setCategory] =
+    useState<"food" | "clothes" | "books" | "other">("food")
   const [quantity, setQuantity] = useState("")
+  const [condition, setCondition] =
+    useState<"new" | "good" | "used">("good")
   const [description, setDescription] = useState("")
 
-  const user = auth.currentUser
-
-  // 🔹 FETCH DONATIONS
+  // 🔐 Auth
   useEffect(() => {
-    if (!user) return
+    return onAuthStateChanged(auth, (user) => {
+      if (user) setUid(user.uid)
+    })
+  }, [])
 
-    const fetch = async () => {
+  // 🔁 Fetch donations whenever dashboard is active
+  useEffect(() => {
+    if (!uid || view !== "dashboard" && view !== "history") return
+
+    const fetchDonations = async () => {
+      setLoading(true)
+
       const q = query(
         collection(db, "donations"),
-        where("donorId", "==", user.uid)
+        where("donorId", "==", uid)
       )
 
       const snap = await getDocs(q)
-      setDonations(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+
+      const all = snap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as any),
+      }))
+
+      setPending(all.filter((d) => d.status === "open"))
+      setCompleted(all.filter((d) => d.status === "matched"))
+
       setLoading(false)
     }
 
-    fetch()
-  }, [user])
+    fetchDonations()
+  }, [uid, view])
 
-  // 🔹 CREATE DONATION
-  const submitDonation = async () => {
-    if (!user) return alert("Not logged in")
-
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      await createDonation({
-        donorId: user.uid,
-        category: category as any,
-        condition: condition as any,
-        quantity,
-        description,
-        city: "TEST_CITY",
-        pickupLocation: {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        },
-      })
-
-      setQuantity("")
-      setDescription("")
-      setActiveTab("dashboard")
+  // 📍 Get browser location
+  const getLocation = (): Promise<{ lat: number; lng: number }> =>
+    new Promise((resolve, reject) => {
+      if (!navigator.geolocation) reject()
+      navigator.geolocation.getCurrentPosition(
+        (pos) =>
+          resolve({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          }),
+        () => reject()
+      )
     })
+
+  // ➕ Create donation
+  const submitDonation = async () => {
+    if (!uid) return
+    if (!quantity.trim() || !description.trim()) {
+      alert("Please fill all fields")
+      return
+    }
+
+    let pickupLocation = { lat: 0, lng: 0 }
+    try {
+      pickupLocation = await getLocation()
+    } catch {
+      alert("Location permission required")
+      return
+    }
+
+    await createDonation({
+      donorId: uid,
+      category,
+      quantity,
+      condition,
+      description,
+      city: "TEST_CITY",
+      pickupLocation,
+    })
+
+    setQuantity("")
+    setDescription("")
+    setView("dashboard") // triggers refetch
+  }
+
+  // 🔓 Logout
+  const handleLogout = async () => {
+    await signOut(auth)
+    localStorage.removeItem("role")
+    window.location.href = "/"
+  }
+
+  // 🧨 DEV reset
+  const resetRegistration = async () => {
+    if (!uid) return
+    if (!window.confirm("DEV ONLY: Reset registration?")) return
+
+    await deleteDoc(doc(db, "donors", uid))
+    await deleteDoc(doc(db, "users", uid))
+
+    await signOut(auth)
+    localStorage.removeItem("role")
+    window.location.href = "/"
   }
 
   return (
-    <div className="flex min-h-screen bg-black text-white">
-
+    <div className="flex min-h-screen w-screen bg-black text-white">
       {/* SIDEBAR */}
-      <aside className="w-64 border-r border-white/10 p-6">
-        <h1 className="text-2xl font-bold mb-10">PhilanthroAid</h1>
+      <aside className="w-[260px] shrink-0 border-r border-white/10 p-6 flex flex-col">
+        <h1 className="text-xl font-semibold mb-8">PhilanthroAid</h1>
 
-        <SidebarItem
-          active={activeTab === "dashboard"}
-          onClick={() => setActiveTab("dashboard")}
-          label="Dashboard"
-        />
-        <SidebarItem
-          active={activeTab === "donate"}
-          onClick={() => setActiveTab("donate")}
-          label="Donate Items"
-        />
-        <SidebarItem
-          active={activeTab === "history"}
-          onClick={() => setActiveTab("history")}
-          label="My History"
-        />
+        <nav className="flex flex-col gap-2">
+          {(["dashboard", "donate", "history"] as View[]).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`text-left px-4 py-2 rounded-lg ${
+                view === v ? "bg-white/10" : "hover:bg-white/5"
+              }`}
+            >
+              {v === "dashboard"
+                ? "Dashboard"
+                : v === "donate"
+                ? "Donate Items"
+                : "My History"}
+            </button>
+          ))}
+        </nav>
 
-        <button
-          onClick={async () => {
-            await signOut(auth)
-            localStorage.clear()
-            window.location.href = "/"
-          }}
-          className="mt-12 text-red-400"
-        >
-          Logout
-        </button>
+        <div className="mt-auto space-y-3">
+          <button
+            onClick={handleLogout}
+            className="w-full bg-white/10 py-2 rounded"
+          >
+            Logout
+          </button>
+          <button
+            onClick={resetRegistration}
+            className="w-full bg-red-900/60 py-2 rounded text-red-300"
+          >
+            Reset (DEV)
+          </button>
+        </div>
       </aside>
 
       {/* MAIN */}
-      <main className="flex-1 p-10">
-
+      <main className="flex-1 w-full p-10 overflow-x-hidden">
         {/* DASHBOARD */}
-        {activeTab === "dashboard" && (
+        {view === "dashboard" && (
           <>
-            <h2 className="text-4xl font-semibold mb-2">
-              Welcome back 👋
-            </h2>
-            <p className="text-white/50 mb-10">
-              Here’s what’s happening with your donations
+            <h2 className="text-3xl mb-1">Welcome back 👋</h2>
+            <p className="text-white/60 mb-8">
+              Track your ongoing donations and impact.
             </p>
 
-            <div className="grid grid-cols-3 gap-6 mb-12">
-              <Stat title="Total Donations" value={donations.length} />
-              <Stat title="Active" value={donations.filter(d => d.status === "open").length} />
-              <Stat title="Matched" value={donations.filter(d => d.status === "matched").length} />
-            </div>
-
-            <h3 className="text-xl mb-4">Active Donations</h3>
+            <h3 className="text-xl mb-4">Active Donation Units</h3>
 
             {loading ? (
-              <p>Loading…</p>
-            ) : donations.length === 0 ? (
-              <p className="text-white/40">No donations yet</p>
+              <p>Loading...</p>
+            ) : pending.length === 0 ? (
+              <p className="text-white/50">No active donations.</p>
             ) : (
-              <div className="space-y-4">
-                {donations.map(d => (
-                  <div
-                    key={d.id}
-                    className="p-6 rounded-xl bg-white/5 flex justify-between"
-                  >
-                    <div>
-                      <p className="font-medium capitalize">{d.category}</p>
-                      <p className="text-white/50 text-sm">
-                        {d.quantity} • {d.condition}
-                      </p>
-                    </div>
-                    <span className="text-yellow-400 text-sm">
-                      {d.status}
-                    </span>
-                  </div>
+              <div className="space-y-4 w-full">
+                {pending.map((d) => (
+                  <DonationCard key={d.id} donation={d} />
                 ))}
               </div>
             )}
@@ -146,40 +204,55 @@ export default function DonorDashboard() {
         )}
 
         {/* DONATE */}
-        {activeTab === "donate" && (
-          <div className="max-w-lg">
-            <h2 className="text-3xl mb-6">New Donation</h2>
+        {view === "donate" && (
+          <div className="w-full max-w-xl">
+            <h2 className="text-2xl mb-6">New Donation</h2>
 
-            <select className="input" value={category} onChange={e => setCategory(e.target.value)}>
-              <option value="food">Food</option>
-              <option value="clothes">Clothes</option>
-              <option value="books">Books</option>
-              <option value="other">Other</option>
-            </select>
+            <Field label="Category">
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as any)}
+                className="input"
+              >
+                <option value="food">Food</option>
+                <option value="clothes">Clothes</option>
+                <option value="books">Books</option>
+                <option value="other">Other</option>
+              </select>
+            </Field>
 
-            <select className="input mt-4" value={condition} onChange={e => setCondition(e.target.value)}>
-              <option value="new">New</option>
-              <option value="good">Good</option>
-              <option value="used">Used</option>
-            </select>
+            <Field label="Quantity">
+              <input
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                className="input"
+              />
+            </Field>
 
-            <input
-              className="input mt-4"
-              placeholder="Quantity"
-              value={quantity}
-              onChange={e => setQuantity(e.target.value)}
-            />
+            <Field label="Condition">
+              <select
+                value={condition}
+                onChange={(e) => setCondition(e.target.value as any)}
+                className="input"
+              >
+                <option value="new">New</option>
+                <option value="good">Good</option>
+                <option value="used">Used</option>
+              </select>
+            </Field>
 
-            <textarea
-              className="input mt-4"
-              placeholder="Description"
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-            />
+            <Field label="Description">
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="input resize-none"
+                rows={3}
+              />
+            </Field>
 
             <button
               onClick={submitDonation}
-              className="mt-6 bg-white text-black px-6 py-3 rounded-xl"
+              className="mt-4 bg-white text-black px-6 py-2 rounded"
             >
               Submit Donation
             </button>
@@ -187,42 +260,69 @@ export default function DonorDashboard() {
         )}
 
         {/* HISTORY */}
-        {activeTab === "history" && (
-          <p className="text-white/50">History view coming next</p>
+        {view === "history" && (
+          <>
+            <h2 className="text-3xl mb-6">Donation History</h2>
+
+            {completed.length === 0 ? (
+              <p className="text-white/50">No completed donations.</p>
+            ) : (
+              <div className="space-y-4 w-full">
+                {completed.map((d) => (
+                  <DonationCard key={d.id} donation={d} />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </main>
     </div>
   )
 }
 
-/* ───────── helpers ───────── */
+/* ───────────────────────── */
 
-function SidebarItem({
-  label,
-  active,
-  onClick,
-}: {
-  label: string
-  active: boolean
-  onClick: () => void
-}) {
+function DonationCard({ donation }: { donation: Donation }) {
+  const color =
+    donation.status === "open"
+      ? "bg-yellow-400 shadow-yellow-400/50"
+      : "bg-green-400 shadow-green-400/50"
+
   return (
-    <button
-      onClick={onClick}
-      className={`block w-full text-left px-4 py-3 rounded-lg mb-2
-        ${active ? "bg-white/10" : "hover:bg-white/5"}
-      `}
-    >
-      {label}
-    </button>
+    <div className="w-full bg-white/5 p-6 rounded-2xl flex justify-between items-center">
+      <div>
+        <p className="font-medium capitalize">{donation.category}</p>
+        <p className="text-sm text-white/60">
+          {donation.quantity} · {donation.condition}
+        </p>
+        <p className="text-sm text-white/50 mt-1">
+          {donation.description}
+        </p>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <span
+          className={`h-3 w-3 rounded-full ${color} shadow-lg`}
+        />
+        <span className="text-sm capitalize">
+          {donation.status}
+        </span>
+      </div>
+    </div>
   )
 }
 
-function Stat({ title, value }: { title: string; value: number }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
   return (
-    <div className="p-6 rounded-xl bg-white/5">
-      <p className="text-white/50 text-sm">{title}</p>
-      <p className="text-3xl mt-2">{value}</p>
-    </div>
+    <label className="block mb-4">
+      {label}
+      {children}
+    </label>
   )
 }
