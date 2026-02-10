@@ -6,7 +6,7 @@ import { useEffect, useState } from "react"
 import { onAuthStateChanged } from "firebase/auth"
 import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom"
 import { auth } from "./firebase"
-import { loginWithGoogle, logout } from "./auth"
+// import { loginWithGoogle, logout } from "./auth"
 import { bootstrapUser } from "./userBootstrap"
 
 // pages
