@@ -49,7 +49,7 @@ export default function NgoDashboard() {
   const [available, setAvailable] = useState<Donation[]>([])
   const [myDonations, setMyDonations] = useState<Donation[]>([])
   const [requests, setRequests] = useState<Request[]>([])
-  const [loading, setLoading] = useState(false)
+  // const [loading, setLoading] = useState(false)
 
   /* ---------- Request form ---------- */
   const [reqCategory, setReqCategory] = useState("food")
