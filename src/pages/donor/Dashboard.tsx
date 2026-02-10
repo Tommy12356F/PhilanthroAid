@@ -11,25 +11,45 @@ import {
 import { auth, db } from "../../firebase"
 import { createDonation } from "../../services/donationService"
 
+/* ───────────────────── TYPES ───────────────────── */
+
+type DonationStatus = "open" | "matched" | "completed"
+
 type Donation = {
   id: string
   category: string
   quantity: string
   condition: "new" | "good" | "used"
   description: string
-  status: "open" | "matched"
+  status: DonationStatus
 }
 
-type View = "dashboard" | "donate" | "history"
+type Request = {
+  id: string
+  category: string
+  quantity: string
+  urgency: "low" | "medium" | "high"
+  description: string
+  fulfilled: boolean
+  ngoId: string
+}
+
+type View = "dashboard" | "donate" | "history" | "requests"
+
+/* ───────────────────── COMPONENT ───────────────────── */
 
 export default function DonorDashboard() {
   const [uid, setUid] = useState<string | null>(null)
   const [view, setView] = useState<View>("dashboard")
+
   const [pending, setPending] = useState<Donation[]>([])
+  const [matched, setMatched] = useState<Donation[]>([])
   const [completed, setCompleted] = useState<Donation[]>([])
+  const [requests, setRequests] = useState<Request[]>([])
+
   const [loading, setLoading] = useState(true)
 
-  // form state
+  /* ---------- Donate form ---------- */
   const [category, setCategory] =
     useState<"food" | "clothes" | "books" | "other">("food")
   const [quantity, setQuantity] = useState("")
@@ -37,18 +57,18 @@ export default function DonorDashboard() {
     useState<"new" | "good" | "used">("good")
   const [description, setDescription] = useState("")
 
-  // 🔐 Auth
+  /* ---------- Auth ---------- */
   useEffect(() => {
     return onAuthStateChanged(auth, (user) => {
       if (user) setUid(user.uid)
     })
   }, [])
 
-  // 🔁 Fetch donations whenever dashboard is active
+  /* ---------- Fetch DONATIONS ---------- */
   useEffect(() => {
-    if (!uid || view !== "dashboard" && view !== "history") return
+    if (!uid || (view !== "dashboard" && view !== "history")) return
 
-    const fetchDonations = async () => {
+    const run = async () => {
       setLoading(true)
 
       const q = query(
@@ -57,22 +77,44 @@ export default function DonorDashboard() {
       )
 
       const snap = await getDocs(q)
-
-      const all = snap.docs.map((d) => ({
+      const all: Donation[] = snap.docs.map((d) => ({
         id: d.id,
         ...(d.data() as any),
       }))
 
       setPending(all.filter((d) => d.status === "open"))
-      setCompleted(all.filter((d) => d.status === "matched"))
+      setMatched(all.filter((d) => d.status === "matched"))
+      setCompleted(all.filter((d) => d.status === "completed"))
 
       setLoading(false)
     }
 
-    fetchDonations()
+    run()
   }, [uid, view])
 
-  // 📍 Get browser location
+  /* ---------- Fetch REQUESTS (for donors) ---------- */
+  useEffect(() => {
+    if (!uid || view !== "requests") return
+
+    const run = async () => {
+      const q = query(
+        collection(db, "requests"),
+        where("fulfilled", "==", false)
+      )
+
+      const snap = await getDocs(q)
+      setRequests(
+        snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as any),
+        }))
+      )
+    }
+
+    run()
+  }, [uid, view])
+
+  /* ---------- Geolocation ---------- */
   const getLocation = (): Promise<{ lat: number; lng: number }> =>
     new Promise((resolve, reject) => {
       if (!navigator.geolocation) reject()
@@ -86,11 +128,10 @@ export default function DonorDashboard() {
       )
     })
 
-  // ➕ Create donation
+  /* ---------- Create Donation ---------- */
   const submitDonation = async () => {
-    if (!uid) return
-    if (!quantity.trim() || !description.trim()) {
-      alert("Please fill all fields")
+    if (!uid || !quantity.trim() || !description.trim()) {
+      alert("Fill all fields")
       return
     }
 
@@ -114,20 +155,19 @@ export default function DonorDashboard() {
 
     setQuantity("")
     setDescription("")
-    setView("dashboard") // triggers refetch
+    setView("dashboard")
   }
 
-  // 🔓 Logout
-  const handleLogout = async () => {
+  /* ---------- Logout / Reset ---------- */
+  const logout = async () => {
     await signOut(auth)
     localStorage.removeItem("role")
     window.location.href = "/"
   }
 
-  // 🧨 DEV reset
   const resetRegistration = async () => {
     if (!uid) return
-    if (!window.confirm("DEV ONLY: Reset registration?")) return
+    if (!confirm("DEV ONLY: Reset registration?")) return
 
     await deleteDoc(doc(db, "donors", uid))
     await deleteDoc(doc(db, "users", uid))
@@ -137,6 +177,8 @@ export default function DonorDashboard() {
     window.location.href = "/"
   }
 
+  /* ───────────────────── UI ───────────────────── */
+
   return (
     <div className="flex min-h-screen w-screen bg-black text-white">
       {/* SIDEBAR */}
@@ -144,28 +186,22 @@ export default function DonorDashboard() {
         <h1 className="text-xl font-semibold mb-8">PhilanthroAid</h1>
 
         <nav className="flex flex-col gap-2">
-          {(["dashboard", "donate", "history"] as View[]).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`text-left px-4 py-2 rounded-lg ${
-                view === v ? "bg-white/10" : "hover:bg-white/5"
-              }`}
-            >
-              {v === "dashboard"
-                ? "Dashboard"
-                : v === "donate"
-                ? "Donate Items"
-                : "My History"}
-            </button>
-          ))}
+          <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")}>
+            Dashboard
+          </NavButton>
+          <NavButton active={view === "donate"} onClick={() => setView("donate")}>
+            Donate Items
+          </NavButton>
+          <NavButton active={view === "history"} onClick={() => setView("history")}>
+            My History
+          </NavButton>
+          <NavButton active={view === "requests"} onClick={() => setView("requests")}>
+            NGO Requests
+          </NavButton>
         </nav>
 
         <div className="mt-auto space-y-3">
-          <button
-            onClick={handleLogout}
-            className="w-full bg-white/10 py-2 rounded"
-          >
+          <button onClick={logout} className="w-full bg-white/10 py-2 rounded">
             Logout
           </button>
           <button
@@ -187,14 +223,14 @@ export default function DonorDashboard() {
               Track your ongoing donations and impact.
             </p>
 
-            <h3 className="text-xl mb-4">Active Donation Units</h3>
+            <h3 className="text-xl mb-4">Active Donations</h3>
 
             {loading ? (
               <p>Loading...</p>
             ) : pending.length === 0 ? (
               <p className="text-white/50">No active donations.</p>
             ) : (
-              <div className="space-y-4 w-full">
+              <div className="space-y-4">
                 {pending.map((d) => (
                   <DonationCard key={d.id} donation={d} />
                 ))}
@@ -205,15 +241,11 @@ export default function DonorDashboard() {
 
         {/* DONATE */}
         {view === "donate" && (
-          <div className="w-full max-w-xl">
+          <div className="max-w-xl">
             <h2 className="text-2xl mb-6">New Donation</h2>
 
             <Field label="Category">
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value as any)}
-                className="input"
-              >
+              <select value={category} onChange={(e) => setCategory(e.target.value as any)} className="input">
                 <option value="food">Food</option>
                 <option value="clothes">Clothes</option>
                 <option value="books">Books</option>
@@ -222,19 +254,11 @@ export default function DonorDashboard() {
             </Field>
 
             <Field label="Quantity">
-              <input
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                className="input"
-              />
+              <input value={quantity} onChange={(e) => setQuantity(e.target.value)} className="input" />
             </Field>
 
             <Field label="Condition">
-              <select
-                value={condition}
-                onChange={(e) => setCondition(e.target.value as any)}
-                className="input"
-              >
+              <select value={condition} onChange={(e) => setCondition(e.target.value as any)} className="input">
                 <option value="new">New</option>
                 <option value="good">Good</option>
                 <option value="used">Used</option>
@@ -250,10 +274,7 @@ export default function DonorDashboard() {
               />
             </Field>
 
-            <button
-              onClick={submitDonation}
-              className="mt-4 bg-white text-black px-6 py-2 rounded"
-            >
+            <button onClick={submitDonation} className="bg-white text-black px-6 py-2 rounded">
               Submit Donation
             </button>
           </div>
@@ -264,12 +285,28 @@ export default function DonorDashboard() {
           <>
             <h2 className="text-3xl mb-6">Donation History</h2>
 
-            {completed.length === 0 ? (
-              <p className="text-white/50">No completed donations.</p>
+            <div className="space-y-6">
+              {matched.map((d) => (
+                <DonationCard key={d.id} donation={d} />
+              ))}
+              {completed.map((d) => (
+                <DonationCard key={d.id} donation={d} />
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* REQUESTS */}
+        {view === "requests" && (
+          <>
+            <h2 className="text-3xl mb-6">NGO Requests</h2>
+
+            {requests.length === 0 ? (
+              <p className="text-white/50">No active requests.</p>
             ) : (
-              <div className="space-y-4 w-full">
-                {completed.map((d) => (
-                  <DonationCard key={d.id} donation={d} />
+              <div className="grid grid-cols-2 gap-6">
+                {requests.map((r) => (
+                  <RequestCard key={r.id} request={r} />
                 ))}
               </div>
             )}
@@ -280,16 +317,18 @@ export default function DonorDashboard() {
   )
 }
 
-/* ───────────────────────── */
+/* ───────────────────── COMPONENTS ───────────────────── */
 
 function DonationCard({ donation }: { donation: Donation }) {
   const color =
-    donation.status === "open"
+    donation.status === "completed"
+      ? "bg-green-400 shadow-green-400/50"
+      : donation.status === "matched"
       ? "bg-yellow-400 shadow-yellow-400/50"
-      : "bg-green-400 shadow-green-400/50"
+      : "bg-gray-400"
 
   return (
-    <div className="w-full bg-white/5 p-6 rounded-2xl flex justify-between items-center">
+    <div className="bg-white/5 p-6 rounded-2xl flex justify-between items-center">
       <div>
         <p className="font-medium capitalize">{donation.category}</p>
         <p className="text-sm text-white/60">
@@ -301,27 +340,54 @@ function DonationCard({ donation }: { donation: Donation }) {
       </div>
 
       <div className="flex items-center gap-3">
-        <span
-          className={`h-3 w-3 rounded-full ${color} shadow-lg`}
-        />
-        <span className="text-sm capitalize">
-          {donation.status}
-        </span>
+        <span className={`h-3 w-3 rounded-full ${color} shadow-lg`} />
+        <span className="text-sm capitalize">{donation.status}</span>
       </div>
     </div>
   )
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
+function RequestCard({ request }: { request: Request }) {
+  const urgencyColor =
+    request.urgency === "high"
+      ? "text-red-400"
+      : request.urgency === "medium"
+      ? "text-yellow-400"
+      : "text-green-400"
+
+  return (
+    <div className="bg-white/5 p-6 rounded-2xl">
+      <p className="font-medium capitalize">{request.category}</p>
+      <p className="text-sm text-white/60">
+        Quantity needed: {request.quantity}
+      </p>
+      <p className={`text-sm mt-1 ${urgencyColor}`}>
+        Urgency: {request.urgency}
+      </p>
+      <p className="text-xs text-white/50 mt-2">
+        {request.description}
+      </p>
+    </div>
+  )
+}
+
+function NavButton({ children, active, onClick }: any) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2 rounded-lg text-left ${
+        active ? "bg-white/10" : "hover:bg-white/5"
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function Field({ label, children }: any) {
   return (
     <label className="block mb-4">
-      {label}
+      <p className="text-sm mb-1 text-white/70">{label}</p>
       {children}
     </label>
   )
