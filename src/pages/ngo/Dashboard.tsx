@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { onAuthStateChanged, signOut } from "firebase/auth"
-import { runGeminiMatching } from "../../services/geminiMatchService"
+// import { runGeminiMatching } from "../../services/geminiMatchService" fix line 3,212,214
 
 import {
   collection,
@@ -209,9 +209,9 @@ export default function NgoDashboard() {
       }
 
       // 3. Run Gemini
-      const matches = await runGeminiMatching(donations, requests)
+      // const matches = await runGeminiMatching(donations, requests)
 
-      setGeminiMatches(matches)
+      // setGeminiMatches(matches) 
     } catch (err) {
       console.error(err)
       setGeminiError("Gemini failed to generate matches")
