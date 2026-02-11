@@ -1,6 +1,8 @@
 // src/services/geminiMatchService.ts
 
-type Donation = {
+/* ───────────────── TYPES ───────────────── */
+
+export type GeminiDonation = {
   id: string
   category: string
   quantity: string
@@ -9,7 +11,7 @@ type Donation = {
   donorName?: string
 }
 
-type Request = {
+export type GeminiRequest = {
   id: string
   category: string
   quantity: string
@@ -17,44 +19,47 @@ type Request = {
   description: string
 }
 
-type MatchResult = {
+export type GeminiMatch = {
   donationId: string
   requestId: string
-  score: number
-  reasoning: string
+  reason: string
 }
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY
+/* ───────────────── CONFIG ───────────────── */
 
-export async function generateMatches(
-  donations: Donation[],
-  requests: Request[]
-): Promise<MatchResult[]> {
-  if (!GEMINI_API_KEY) {
-    console.warn("Gemini API key missing")
+// ⚠️ DEV ONLY — you explicitly asked for this
+const GEMINI_API_KEY = "AIzaSyDPGRATX1bCFA1yXYNgFPgq9x2rGiZ7G7E"
+
+/* ───────────────── FUNCTION ───────────────── */
+
+export async function runGeminiMatching(
+  donations: GeminiDonation[],
+  requests: GeminiRequest[]
+): Promise<GeminiMatch[]> {
+  if (!donations.length || !requests.length) {
+    console.warn("Gemini: No data to match")
     return []
   }
 
   const prompt = `
 You are an AI logistics matcher for an NGO platform.
 
-Goal:
-Match each donation to the most relevant request.
+TASK:
+Match the most relevant donation to each request.
 
-Consider:
-- Category similarity (highest priority)
-- Quantity relevance
-- Urgency (high > medium > low)
-- Description semantic similarity
-- Location proximity if available
+PRIORITIES:
+1. Category match (highest)
+2. Quantity relevance
+3. Urgency (high > medium > low)
+4. Semantic similarity in description
+5. Location proximity if available
 
-Return STRICT JSON ONLY in this format:
+RETURN STRICT JSON ONLY:
 [
   {
     "donationId": "string",
     "requestId": "string",
-    "score": number (0-100),
-    "reasoning": "short explanation"
+    "reason": "short explanation"
   }
 ]
 
@@ -81,11 +86,21 @@ ${JSON.stringify(requests, null, 2)}
   const data = await res.json()
 
   try {
-    const text =
-      data.candidates?.[0]?.content?.parts?.[0]?.text ?? "[]"
-    return JSON.parse(text)
-  } catch (e) {
-    console.error("Gemini parsing failed", e)
+    const rawText =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "[]"
+
+    const parsed = JSON.parse(rawText)
+
+    if (!Array.isArray(parsed)) return []
+
+    // ✅ Normalize output
+    return parsed.map((m) => ({
+      donationId: m.donationId,
+      requestId: m.requestId,
+      reason: m.reason ?? m.reasoning ?? "Matched by Gemini",
+    }))
+  } catch (err) {
+    console.error("❌ Gemini parse failed:", err)
     return []
   }
 }
