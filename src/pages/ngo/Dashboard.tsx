@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react"
 import { onAuthStateChanged, signOut } from "firebase/auth"
-// import { runGeminiMatching } from "../../services/geminiMatchService" fix line 3,212,214
-
 import {
   collection,
   getDocs,
@@ -28,12 +26,6 @@ type Donation = {
   matchedNgoId?: string
   donorName?: string
   pickupLocation?: { lat: number; lng: number }
-}
-type GeminiMatch = {
-  donationId: string
-  requestId: string
-  score: number
-  reasoning: string
 }
 
 type Request = {
@@ -65,14 +57,8 @@ export default function NgoDashboard() {
   const [reqUrgency, setReqUrgency] =
     useState<"low" | "medium" | "high">("medium")
   const [reqDescription, setReqDescription] = useState("")
-  /* ---------- Gemini State ---------- */
-  const [geminiMatches, setGeminiMatches] = useState<GeminiMatch[]>([])
-  const [geminiLoading, setGeminiLoading] = useState(false)
-  const [geminiError, setGeminiError] = useState<string | null>(null)
-
 
   /* ================= AUTH ================= */
-
 
   useEffect(() => {
     return onAuthStateChanged(auth, (user) => {
@@ -176,50 +162,6 @@ export default function NgoDashboard() {
       p.map(r => r.id === id ? { ...r, fulfilled: value } : r)
     )
   }
-  /* ---------- Gemini Matching ---------- */
-  const runGemini = async () => {
-    setGeminiLoading(true)
-    setGeminiError(null)
-    setGeminiMatches([])
-
-    try {
-      // 1. Fetch open donations
-      const donationSnap = await getDocs(
-        query(collection(db, "donations"), where("status", "==", "open"))
-      )
-
-      // 2. Fetch unfulfilled requests
-      const requestSnap = await getDocs(
-        query(collection(db, "requests"), where("fulfilled", "==", false))
-      )
-
-      const donations = donationSnap.docs.map(d => ({
-        id: d.id,
-        ...(d.data() as any),
-      }))
-
-      const requests = requestSnap.docs.map(r => ({
-        id: r.id,
-        ...(r.data() as any),
-      }))
-
-      if (donations.length === 0 || requests.length === 0) {
-        setGeminiError("No open donations or requests to match")
-        return
-      }
-
-      // 3. Run Gemini
-      // const matches = await runGeminiMatching(donations, requests)
-
-      // setGeminiMatches(matches) 
-    } catch (err) {
-      console.error(err)
-      setGeminiError("Gemini failed to generate matches")
-    } finally {
-      setGeminiLoading(false)
-    }
-  }
-
 
   /* ================= DEV ================= */
 
@@ -386,71 +328,14 @@ export default function NgoDashboard() {
         )}
 
         {/* MATCHES */}
-          {view === "matches" && (
-            <>
-              <h2 className="text-3xl mb-4">AI-Suggested Matches</h2>
-              <p className="text-white/60 mb-6">
-                Read-only AI pairing of donations ↔ requests
-              </p>
-
-              <button
-                onClick={runGemini}
-                disabled={geminiLoading}
-                className="mb-6 bg-white text-black px-6 py-2 rounded"
-              >
-                {geminiLoading ? "Matching..." : "Run Gemini Matching"}
-              </button>
-
-              {geminiError && (
-                <p className="text-red-400 mb-4">{geminiError}</p>
-              )}
-
-              {geminiMatches.length === 0 && !geminiLoading ? (
-                <p className="text-white/40">No matches generated yet.</p>
-              ) : (
-                <div className="space-y-8">
-                  {geminiMatches.map((m, idx) => {
-                    const donation = available.find(d => d.id === m.donationId)
-                    const request = requests.find(r => r.id === m.requestId)
-
-                    return (
-                      <div key={idx} className="grid grid-cols-2 gap-6">
-                        {/* REQUEST */}
-                        <div className="bg-white/5 p-6 rounded-xl">
-                          <p className="text-xs text-white/40 mb-1">REQUEST</p>
-                          <p className="font-medium capitalize">{request?.category}</p>
-                          <p className="text-sm text-white/60">
-                            Qty: {request?.quantity} · {request?.urgency}
-                          </p>
-                          <p className="text-xs text-white/40 mt-2">
-                            {request?.description}
-                          </p>
-                        </div>
-
-                        {/* DONATION */}
-                        <div className="bg-white/5 p-6 rounded-xl">
-                          <p className="text-xs text-white/40 mb-1">DONATION</p>
-                          <p className="font-medium capitalize">{donation?.category}</p>
-                          <p className="text-sm text-white/60">
-                            Qty: {donation?.quantity} · {donation?.condition}
-                          </p>
-                          <p className="text-xs text-white/40 mt-2">
-                            {donation?.description}
-                          </p>
-                        </div>
-
-                        {/* REASON */}
-                        <div className="col-span-2 text-xs text-white/50">
-                          <strong>Why:</strong> {m.reasoning} (Score: {m.score})
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </>
-          )}
-
+        {view === "matches" && (
+          <div>
+            <h2 className="text-3xl mb-4">AI Matches</h2>
+            <p className="text-white/60">
+              Gemini-powered matching coming soon 🚀
+            </p>
+          </div>
+        )}
       </main>
     </div>
   )
